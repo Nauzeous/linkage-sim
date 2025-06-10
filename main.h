@@ -14,18 +14,15 @@ typedef Color Colour;
 #define JOINT_RADIUS 10.0f
 #define SCREEN_WIDTH 800
 #define SCREEN_HEIGHT 800
-#define ANGLE_VEL -.03f
 #define TRACER_LENGTH 45
-#define FRAMERATE 120
+#define FRAMERATE 120.0f
 #define MAX_NODES 20
+#define ANGLE_VEL 0.5f/(2.0f*PI*FRAMERATE)
+#define PIVOT_NODE 0 // the index in arrays, immutable
+#define FIXED_NODE 1
+#define ROTATING_NODE 2
 
 
-
-typedef struct{
-	bool exists;
-	Vec2 solution1;
-	Vec2 solution2;
-} Intersection;
 
 typedef struct{
 	uint8_t source_node;
@@ -40,22 +37,25 @@ typedef enum{
 }Node_state;
 
 typedef struct{
-	// if the node is a rotating node, the pos is in the form (r,theta)
 	Vec2 pos; 
 	Node_state state;
 } Node;
 
 typedef struct{
 	Node nodes[MAX_NODES];
-	double adj_matrix[MAX_NODES][MAX_NODES];
+	float adj_matrix[MAX_NODES][MAX_NODES];
 	uint8_t free_nodes[MAX_NODES]; // use this like a stack
 	uint8_t free_node_count; 
 } Graph;
 
 typedef struct{
+	int num_nodes;
 	Vec2* positions;
-	int* pnode1;
-	int* pnode2;
+	float* connections;
+	uint8_t* pnode1;
+	uint8_t* connection1;
+	uint8_t* pnode2;
+	uint8_t* connection2;
 } Linkage;
 
 

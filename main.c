@@ -8,83 +8,6 @@ float clamp(float x, float a, float b){
 	return x;
 }
 
-
-
-
-Intersection circle_solutions(Vector2 p1, Vector2 p2, float r1, float r2) {
-    double n = p1.x - p2.x;
-    double m = p2.y - p1.y;
-    double u = r1*r1 + p2.x*p2.x + p2.y*p2.y - p1.x*p1.x - p1.y*p1.y - r2*r2;
-    Intersection result = {0};  // Defaults to no solution
-    
-    // Check if circles are identical or one is inside the other
-    double distance = sqrt(n*n + m*m);
-    if (distance > r1 + r2) {
-        // Circles are too far apart
-        result.exists = false;
-        return result;
-    }
-    if (distance < fabs(r1 - r2)) {
-        // One circle is inside the other
-        result.exists = false;
-        return result;
-    }
-    if (distance == 0 && r1 == r2) {
-        // Identical circles - infinite solutions
-        result.exists = false;  // No specific solution points
-        return result;
-    }
-    
-    // Handle horizontal alignment
-    if (fabs(m) < 0.0001f) {
-        // Centers horizontally aligned
-        double h = (r1*r1 - r2*r2 + distance*distance) / (2*distance);
-        double x_mid = p1.x - n * h / distance;
-        double offset = sqrt(r1*r1 - h*h);
-        
-        result.exists = true;
-        result.solution1 = (Vector2){ x_mid, p1.y + offset };
-        result.solution2 = (Vector2){ x_mid, p1.y - offset };
-        return result;
-    }
-    
-    // Handle vertical alignment
-    if (fabs(n) < 0.0001f) {
-        // Centers vertically aligned
-        double h = (r1*r1 - r2*r2 + distance*distance) / (2*distance);
-        double y_mid = p1.y - m * h / distance;
-        double offset = sqrt(r1*r1 - h*h);
-        
-        result.exists = true;
-        result.solution1 = (Vector2){ p1.x + offset, y_mid };
-        result.solution2 = (Vector2){ p1.x - offset, y_mid };
-        return result;
-    }
-    
-    // General case - solve quadratic equation
-   	double a = m*m + n*n;
-    double b = -2.0f * p1.x * m*m + 2.0f * n * (u/2.0f - p1.y * m);
-    double c = m*m * p1.x*p1.x + (u/2.0f - p1.y * m) * (u/2.0f - p1.y * m) - m*m * r1*r1;
-    
-    double discriminant = b*b - 4.0f * a * c;
-    if (discriminant < 0.0f) {
-        // No intersection (this shouldn't happen due to earlier checks)
-        result.exists = false;
-        return result;
-    }
-    
-    float sqrtD = sqrtf(discriminant);
-    float x1 = (-b + sqrtD) / (2.0f * a);
-    float x2 = (-b - sqrtD) / (2.0f * a);
-    float y1 = (n * x1 + u / 2.0f) / m;
-    float y2 = (n * x2 + u / 2.0f) / m;
-    
-    result.exists = true;
-    result.solution1 = (Vector2){ x1, y1 };
-    result.solution2 = (Vector2){ x2, y2 };
-    return result;
-}
-
 bool hovering_over_line(Vec2 mouse_pos, Graph* graph,Line line){
 	// dot projection formula from 
 	Vec2 p1 = graph->nodes[line.source_node].pos;
@@ -160,62 +83,44 @@ void draw_sim(Graph* graph,Vec2 tracer[]){
 }
 
 
-void get_position(int node_id, Graph* graph) {
-	Node* node = graph->nodes+node_id;
-    switch (node->state) {
-        case Fixed:
-            return;
-        case Rotating:
-            Vec2 relative_pos = Vector2Subtract(node->pos, graph->nodes[0].pos);
-            relative_pos = Vector2Rotate(relative_pos, ANGLE_VEL);
-            Vec2 new_pos = Vector2Add(relative_pos, graph->nodes[0].pos);
-            node->pos = new_pos;
-            return;
-        case Known:
-        case Unknown:
-            break; // Continue with calculation
-    }
+/* 
+i got this from
+https://www.petercollingridge.co.uk/tutorials/computational-geometry/circle-circle-intersections/
+*/
+void circle_intersection(Vec2 p1, Vec2 p2, Vec2* prev_sol, float r1, float r2){
+	float dx = p2.x - p1.x;
+	float dy = p2.y - p1.y;
 
-    Node pnode1,pnode2;
-    double r1 = 0.0f,r2 = 0.0f;
+	float d = sqrt(dx*dx + dy*dy);
+	if (d > r1 + r2 || d < abs(r2-r1)){
+		return;
+	}
 
-    bool pnode1_found=false;
-    
-    // Find 2 connections to known nodes
-    for(int i = 0; i < MAX_NODES; i++){
-    	double curr_conn = graph->adj_matrix[node_id][i];
-    	// if 1 connection is already determined
-    	if (graph->nodes[i].state==Unknown)continue;
-    	if (curr_conn != 0.0f){
-    		if (r1 == 0.0){
-    			r1 = curr_conn;
-    			pnode1 = graph->nodes[i];
-    		} else {
-    			r2 = curr_conn;
-    			pnode2 = graph->nodes[i]; 
-    			break;
-    		}
-    	}
-    }
-    
-    if (r1 == 0.0f && r2 == 0.0f) {
-        return; // Not enough constraints to determine position
-    
-    
-    // Pass the known positions as centers
-    Intersection sol = circle_solutions(pnode1.pos, pnode2.pos, r1, r2);
-    
-    if (!sol.exists) {
-        printf("no solution, machine would break here \n");
-        return;
-    }
-    
-    // If node already has a position, choose the closest solution
-    double dist_from_sol1 = Vector2DistanceSqr(sol.solution1, node->pos);
-    double dist_from_sol2 = Vector2DistanceSqr(sol.solution2, node->pos);
-    
-    node->pos = (dist_from_sol1<dist_from_sol2-1.0)?sol.solution1:sol.solution2;
-    node->state = Known;
+	dx /= d;
+	dy /= d;
+
+	const float a = (r1*r1 - r2*r2 + d*d)/(2*d);
+	const float px = p1.x + a*dx;
+	const float py = p1.y + a*dy;
+	const float h = sqrt(r1*r1 - a*a);
+
+	Vec2 solution1 = {px+h*dy,
+					  py-h*dx};
+
+	Vec2 solution2 = {px-h*dy,
+					  py+h*dx};
+
+	Vec2 solution1_diff = Vector2Subtract(*prev_sol,solution1);
+	Vec2 solution2_diff = Vector2Subtract(*prev_sol,solution2);
+
+	float manhattan_dist_sol1 = abs(solution1_diff.x+solution1_diff.y);
+	float manhattan_dist_sol2 = abs(solution2_diff.x+solution2_diff.y);
+
+	if (manhattan_dist_sol1 > manhattan_dist_sol2){
+		*prev_sol = solution2;
+	} else {
+		*prev_sol = solution1;
+	}
 }
 
 bool line_exists(Graph* graph,int source, int target){
@@ -237,8 +142,6 @@ void add_line(Graph* graph,int a,int b){
 	graph->adj_matrix[a][b] = dist;
 	graph->adj_matrix[b][a] = dist;
 }
-
-
 
 void remove_node(Graph* graph,int node_id){
 	for(int j = 0;j<MAX_NODES;j++){
@@ -283,11 +186,17 @@ bool can_be_determined(Graph* graph,int node_id){
 	return (constraints > 1);
 }
 
-Node** get_node_evaluation_order(Graph* graph) {
+Linkage* get_node_evaluation_order(Graph* graph) {
+
+	Linkage* linkage = malloc(sizeof(Linkage));
+
+
 
 	int num_nodes = MAX_NODES - graph->free_node_count;
 	uint8_t* queue = malloc(num_nodes);
-	uint8_t* known_neighbours = calloc(num_nodes);
+	uint8_t* known_neighbours = calloc(num_nodes,1);
+	uint8_t* known_neighbour1 = malloc(num_nodes);
+	uint8_t* known_neighbour2 = malloc(num_nodes);
 
 	// start with 2 fixed nodes and 1 rotating node
 	int frontptr = 3;
@@ -312,6 +221,7 @@ Node** get_node_evaluation_order(Graph* graph) {
 		}
 		if (!added_node && frontptr<num_nodes){
 			printf("linkage is underconstrained");
+			return NULL;
 		}
 	}
 }
@@ -324,24 +234,55 @@ void reset_states(Graph* graph){
 	}
 }
 
+void update_node_positions(Linkage* linkage){
+	// get new position for the rotating node
+	Vec2* rotating_node = linkage->positions+ROTATING_NODE;
+	Vec2 pivot_node = linkage->positions[PIVOT_NODE];
+
+	const float cos_theta = cos(ANGLE_VEL);
+	const float sin_theta = sin(ANGLE_VEL);
+
+	Vec2 diff = Vector2Subtract(*rotating_node,pivot_node);
+	rotating_node->x = pivot_node.x + (diff.x * cos_theta - diff.y * sin_theta);
+	rotating_node->y = pivot_node.y + (diff.x * sin_theta + diff.y * cos_theta);
+
+
+	for(int i = 3;i<linkage->num_nodes;i++){
+		uint8_t pnode1 = linkage->pnode1[i];
+		uint8_t pnode2 = linkage->pnode2[i];
+		uint8_t conn1 = linkage->connection1[i];
+		uint8_t conn2 = linkage->connection2[i];
+
+		Vec2 p1 = linkage->positions[pnode1];
+		Vec2 p2 = linkage->positions[pnode2];
+		float r1 = linkage->connections[conn1];
+		float r2 = linkage->connections[conn2];
+
+		circle_intersection(p1,p2,linkage->positions+i,r1,r2);
+
+	}
+}
+
 
 void run_sim(Graph* graph){
-	Node** order = get_node_evaluation_order(graph);
+	Linkage* linkage = create_linkage(graph);
 
 	Vec2 tracer[TRACER_LENGTH];
 	for(int i = 0;i<TRACER_LENGTH-1;i++){
 		tracer[i]=graph->nodes[MAX_NODES-1].pos;
 	}
 
+
+
 	while (!WindowShouldClose()){
 		BeginDrawing();
-		for(int i=0;i<MAX_NODES;i++){
-			get_position(order[i],graph);
-		}
+
+		update_node_positions(linkage);
+
 		for(int i =0;i<TRACER_LENGTH-1;i++){
 			tracer[i]=tracer[i+1];
 		}
-		tracer[TRACER_LENGTH-1] = graph->nodes[MAX_NODES-1].pos;
+		tracer[TRACER_LENGTH-1] = linkage->nodes[linkage->num_nodes-1].pos;
 		reset_states(graph);
 		ClearBackground(WHITE);
 		draw_sim(graph,tracer);
