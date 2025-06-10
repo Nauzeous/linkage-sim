@@ -46,10 +46,19 @@ typedef struct{
 } Node;
 
 typedef struct{
-	Node* nodes;
+	Node nodes[MAX_NODES];
 	double adj_matrix[MAX_NODES][MAX_NODES];
-	int num_nodes;
+	uint8_t free_nodes[MAX_NODES]; // use this like a stack
+	uint8_t free_node_count; 
 } Graph;
+
+typedef struct{
+	Vec2* positions;
+	int* pnode1;
+	int* pnode2;
+} Linkage;
+
+
 
 typedef struct{
 	// these names might be a bit confusing

@@ -1,4 +1,4 @@
-#include "incl2.h"
+#include "main.h"
 
 
 
@@ -112,8 +112,8 @@ bool hovering_over_joint(Vec2 mouse_pos,Vec2 joint){
 }
 
 void draw_view(Graph* graph,State* state,Vec2 mouse_pos){
-	for (int i = 0; i < graph->num_nodes;i++){
-		for (int j = i+1;j<graph->num_nodes;j++){
+	for (int i = 0; i <MAX_NODES;i++){
+		for (int j = i+1;j<MAX_NODES;j++){
 			if (graph->adj_matrix[i][j] == 0.0f){
 				continue;
 			}
@@ -132,15 +132,15 @@ void draw_view(Graph* graph,State* state,Vec2 mouse_pos){
 		DrawLineEx(graph->nodes[state->joint_selected].pos,mouse_pos,5.0f,RED);
 	}
 
-	for(int i = 0;i<graph->num_nodes;i++){
+	for(int i = 0;i<MAX_NODES;i++){
 		Colour joint_col = i==state->joint_hovered?RED:BLACK;
 		DrawCircleV(graph->nodes[i].pos,10.0f,joint_col);
 	}
 }
 
 void draw_sim(Graph* graph,Vec2 tracer[]){
-	for (int i = 0; i < graph->num_nodes;i++){
-		for (int j = i+1;j<graph->num_nodes;j++){
+	for (int i = 0; i < MAX_NODES;i++){
+		for (int j = i+1;j<MAX_NODES;j++){
 			if (graph->adj_matrix[i][j] == 0.0){
 				continue;
 			}
@@ -154,7 +154,7 @@ void draw_sim(Graph* graph,Vec2 tracer[]){
 		DrawCircleV(tracer[i],5.0f,RED);
 	}
 
-	for (int i = 0;i<graph->num_nodes;i++){
+	for (int i = 0;i<MAX_NODES;i++){
 		DrawCircleV(graph->nodes[i].pos,10.0f,BLACK);
 	}
 }
@@ -177,27 +177,33 @@ void get_position(int node_id, Graph* graph) {
     }
 
     Node pnode1,pnode2;
-    double r1,r2;
+    double r1 = 0.0f,r2 = 0.0f;
 
     bool pnode1_found=false;
     
     // Find 2 connections to known nodes
-    for(int i = 0; i < graph->num_nodes; i++) {
-    	double curr_conn =
-    	if (graph->adj_matrix[node_id][i] != 0.0){
-    		r1==0.0?r1:r2 = curr_conn;
+    for(int i = 0; i < MAX_NODES; i++){
+    	double curr_conn = graph->adj_matrix[node_id][i];
+    	// if 1 connection is already determined
+    	if (graph->nodes[i].state==Unknown)continue;
+    	if (curr_conn != 0.0f){
+    		if (r1 == 0.0){
+    			r1 = curr_conn;
+    			pnode1 = graph->nodes[i];
+    		} else {
+    			r2 = curr_conn;
+    			pnode2 = graph->nodes[i]; 
+    			break;
+    		}
     	}
-    
-    if (!conn1 || !conn2 || !pnode1 || !pnode2) {
-        return; // Not enough constraints to determine position
     }
     
-    // Now use the correct centers and lengths
-    float r1 = conn1->length;
-    float r2 = conn2->length;
+    if (r1 == 0.0f && r2 == 0.0f) {
+        return; // Not enough constraints to determine position
+    
     
     // Pass the known positions as centers
-    Intersection sol = circle_solutions(pnode1->pos, pnode2->pos, r1, r2);
+    Intersection sol = circle_solutions(pnode1.pos, pnode2.pos, r1, r2);
     
     if (!sol.exists) {
         printf("no solution, machine would break here \n");
@@ -212,12 +218,8 @@ void get_position(int node_id, Graph* graph) {
     node->state = Known;
 }
 
-bool line_exists(Graph* graph,Line l){
-	for(int i = 0;i<graph->num_lines;i++){
-		if ((graph->lines[i].source == l.target && graph->lines[i].target == l.source) &&
-		   (graph->lines[i].source == l.source && graph->lines[i].target == l.target))return true;
-	}
-	return false;
+bool line_exists(Graph* graph,int source, int target){
+	return !(graph->adj_matrix[source][target] == 0.0f);
 }
 
 
@@ -225,27 +227,25 @@ void add_node(Graph* graph,Vec2 pos,Node_state state){
 	Node new_node;
 	new_node.pos = pos;
 	new_node.state = state;
-	graph->adj_matrix[graph->num_nodes++]
+	graph->free_node_count--;
+	uint8_t node_id = graph->free_nodes[graph->free_node_count];
+	graph->nodes[node_id]=new_node;
 }
 
 void add_line(Graph* graph,int a,int b){
-	graph->adj_matrix[a][b] = Vector2Distance(graph->nodes[a],graph->nodes[b]);
+	double dist = Vector2Distance(graph->nodes[a].pos,graph->nodes[b].pos);
+	graph->adj_matrix[a][b] = dist;
+	graph->adj_matrix[b][a] = dist;
 }
 
-void remove_connection(Graph* graph,Line* line){	
 
 
-
-}
-void remove_node(Graph* graph,Node* node){
-	for(int i = 0;i<graph->num_lines;i++){
-		if (graph->lines[i].source == node || graph->lines[i].target == node){
-			remove_connection(graph,graph->lines+i);
-			i--;
-		}
+void remove_node(Graph* graph,int node_id){
+	for(int j = 0;j<MAX_NODES;j++){
+		graph->adj_matrix[j][node_id]=0.0f;
+		graph->adj_matrix[node_id][j]=0.0f;
 	}
-	graph->num_nodes--;
-	*node=graph->nodes[graph->num_nodes];
+	graph->free_nodes[graph->free_node_count--] = node_id;
 }
 
 State* init_state(){
@@ -254,94 +254,70 @@ State* init_state(){
 	state->selected_joint=false;
 	state->hovering_line=false;
 	state->selected_line=false;
-	state->joint_hovered=NULL;
-	state->joint_selected=NULL;
-	state->line_hovered=NULL;
-	state->line_selected=NULL;
+	state->joint_hovered=0;
+	state->joint_selected=0;
+	state->line_hovered=(Line){0,0};
+	state->line_selected=(Line){0,0};
 	return state;
 }
 
 
 Graph* init_graph(){
 	Graph* graph = malloc(sizeof(Graph));
+	*graph = (Graph){0};
 
-	graph->lines = malloc(sizeof(Line)*MAX_LINES);
-	graph->nodes = malloc(sizeof(Node)*MAX_NODES);
-	graph->num_nodes = 0;
-	graph->num_lines = 0;
 	add_node(graph,(Vec2){400,400},Fixed); 
 	add_node(graph,(Vec2){300,400},Fixed);
 	add_node(graph,(Vec2){400,370},Rotating);
-	add_line(graph,graph->nodes,graph->nodes+2);
+	add_line(graph,0,2);
 	return graph;
 }
 
-bool can_be_determined(Graph* graph,Node* node){
-	Node* connected_node;
+bool can_be_determined(Graph* graph,int node_id){
 	int constraints=0;
-	for (int i = 0;i<node->num_connected;i++){
-		Line* curr_line = node->connected[i];
-		if (curr_line->source == node && curr_line->target->state != Unknown)constraints++;
-		else if (curr_line->target== node && curr_line->source->state!=Unknown)constraints++;
-
+	for (int i = 0;i<MAX_NODES;i++){
+		if (graph->adj_matrix[node_id][i] != 0.0f && graph->nodes[i].state != Unknown){
+			constraints++;
+		}
 	}
 	return (constraints > 1);
 }
 
 Node** get_node_evaluation_order(Graph* graph) {
-	Node* a=graph->nodes;
 
-    Node** queue = malloc(sizeof(Node*) * graph->num_nodes);
+	int num_nodes = MAX_NODES - graph->free_node_count;
+	uint8_t* queue = malloc(num_nodes);
+	uint8_t* known_neighbours = calloc(num_nodes);
 
-    for(int i=0;i<8;i++){
-    	queue[i]=a+i;
-    }
-    return queue;
+	// start with 2 fixed nodes and 1 rotating node
+	int frontptr = 3;
+	queue[0] = 0;
+	queue[1] = 1;
+	queue[2] = 2;
 
+	while (frontptr<=num_nodes){
+		bool added_node = false;
+		int curr_node = frontptr-1;
+		for(int i = 0;i<MAX_NODES;i++){
+			if (graph->adj_matrix[curr_node][i] == 0.0f)
+				continue;
+			if (graph->nodes[i].state == Unknown)
+				known_neighbours[i]++;
 
-    int queue_front = 0;
-    int queue_back = 0;
-    
-    // Add all fixed and rotating nodes to the queue first
-    for (int i = 0; i < graph->num_nodes; i++) {
-        if (graph->nodes[i].state == Fixed || graph->nodes[i].state == Rotating){ 
-            queue[queue_back++] = graph->nodes+i;
-		} else {
-            graph->nodes[i].state = Unknown;
-        }
-    }
-    
-    while (queue_front < queue_back){
-        Node* current = queue[queue_front++];
-        for (int i = 0; i < current->num_connected; i++) {
-            Line* line = current->connected[i];
-            Node* other_node;
-            if (line->source==current){
-            	other_node = line->target;
-            } else if (line->target==current){
-            	other_node = line->source;
-            } else {
-            	printf("ermm \n"); // this should not be reachable
-            	// if the line is connected to the node then either the target or the source is the node
-            }
-            if (other_node->state == Unknown && can_be_determined(graph,other_node)){
-            	queue[queue_back++]=other_node;
-            	other_node->state=Known;
-            }
-        }
-    }
-    
-    if (queue_back != graph->num_nodes){
-    	return NULL;
-    }
-    
-    // If we couldn't determine all nodes, it might be an over-constrained or under-constrained system
-    
-    return queue;
+			if (known_neighbours[i]>1){
+				added_node = true;
+				queue[frontptr]=i;
+				frontptr++;
+			}
+		}
+		if (!added_node && frontptr<num_nodes){
+			printf("linkage is underconstrained");
+		}
+	}
 }
 
 void reset_states(Graph* graph){
-	for(int i =0;i<graph->num_nodes;i++){
+	for(int i =0;i<MAX_NODES;i++){
 		if (graph->nodes[i].state == Known){
 			graph->nodes[i].state=Unknown;
 		}
@@ -354,18 +330,18 @@ void run_sim(Graph* graph){
 
 	Vec2 tracer[TRACER_LENGTH];
 	for(int i = 0;i<TRACER_LENGTH-1;i++){
-		tracer[i]=graph->nodes[graph->num_nodes-1].pos;
+		tracer[i]=graph->nodes[MAX_NODES-1].pos;
 	}
 
 	while (!WindowShouldClose()){
 		BeginDrawing();
-		for(int i=0;i<graph->num_nodes;i++){
+		for(int i=0;i<MAX_NODES;i++){
 			get_position(order[i],graph);
 		}
 		for(int i =0;i<TRACER_LENGTH-1;i++){
 			tracer[i]=tracer[i+1];
 		}
-		tracer[TRACER_LENGTH-1] = graph->nodes[graph->num_nodes-1].pos;
+		tracer[TRACER_LENGTH-1] = graph->nodes[MAX_NODES-1].pos;
 		reset_states(graph);
 		ClearBackground(WHITE);
 		draw_sim(graph,tracer);
@@ -374,17 +350,17 @@ void run_sim(Graph* graph){
 }
 
 void sanitise_graph(Graph* graph){ // remove unconnected nodes
-	int size = graph->num_nodes*sizeof(Node);
+	int size = MAX_NODES*sizeof(Node);
 	Node* connected_nodes = malloc(size);
 	int frontptr = 0;
-	for(int i = 0;i<graph->num_nodes;i++){
+	for(int i = 0;i<MAX_NODES;i++){
 		Node curr_node = graph->nodes[i];
 		if (curr_node.num_connected > 0){
 			connected_nodes[frontptr++]=curr_node;
 		}
 	}
 	memcpy(graph->nodes,connected_nodes,size);
-	graph->num_nodes = frontptr;
+	MAX_NODES = frontptr;
 	free(connected_nodes);
 }
 
@@ -422,7 +398,7 @@ void setup_mode(Graph* graph){
 		state->joint_hovered = NULL;
 		state->line_hovered = NULL;
 
-		for (int i = 0;i<graph->num_nodes;i++){
+		for (int i = 0;i<MAX_NODES;i++){
 			if (hovering_over_joint(mouse_pos,graph->nodes[i].pos)){
 				state->joint_hovered = graph->nodes+i;
 				state->hovering_joint = true;
@@ -454,7 +430,7 @@ void setup_mode(Graph* graph){
 			if (state->selected_joint){
 				if (!state->hovering_joint){
 					add_node(graph,mouse_pos,Unknown);
-					add_line(graph,state->joint_selected,graph->nodes+graph->num_nodes-1);
+					add_line(graph,state->joint_selected,graph->nodes+MAX_NODES-1);
 					state->selected_joint = false;
 				}
 
@@ -485,9 +461,9 @@ void setup_mode(Graph* graph){
 }
 
 void update_graph_copy(Graph* graph,Graph* graph_copy){
-	graph_copy->num_nodes=graph->num_nodes;
+	graph_copy->num_nodes=MAX_NODES;
 	graph_copy->num_lines=graph->num_lines;
-	memcpy(graph_copy->nodes,graph->nodes,graph->num_nodes*sizeof(Node));
+	memcpy(graph_copy->nodes,graph->nodes,MAX_NODES*sizeof(Node));
 	memcpy(graph_copy->lines,graph->lines,graph->num_lines*sizeof(Line));
 }
 
